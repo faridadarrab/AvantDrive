@@ -1,0 +1,201 @@
+// AvantDrive ERP — Prisma Schema
+// Entities: User, Role, Permission, UserRole, RolePermission,
+//           ApprovalRequest, AuditLog, DocumentSeries, DocumentCounter
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────
+
+enum RoleName {
+  ADMINISTRADOR
+  ADMINISTRACION
+  ATENCION_AL_CLIENTE
+  REPARADOR_TALLER
+  REPARADOR_DOMICILIO
+  GESTOR_ALMACEN_PIEZAS
+  VENTAS_TIENDA
+  GERENCIA_LECTURA
+}
+
+enum ScopeType {
+  ALL
+  COMPANY
+  OWN
+  READONLY
+}
+
+enum ApprovalStatus {
+  PENDIENTE
+  EN_REVISION
+  APROBADA
+  RECHAZADA
+  EJECUTADA
+}
+
+enum PeriodoSeries {
+  ANUAL
+  MENSUAL
+  NINGUNO
+}
+
+// ─── USER ────────────────────────────────────────────────────────────
+
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  nombre           String
+  companyScope     String    @map("company_scope")
+  refreshTokenHash String?   @map("refresh_token_hash")
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  userRoles              UserRole[]
+  approvalRequestsCreated ApprovalRequest[] @relation("CreatedBy")
+  approvalRequestsApproved ApprovalRequest[] @relation("ApprovedBy")
+  auditLogs              AuditLog[]
+
+  @@map("users")
+}
+
+// ─── ROLE ────────────────────────────────────────────────────────────
+
+model Role {
+  id     String   @id @default(uuid()) @db.Uuid
+  nombre RoleName @unique
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+// ─── PERMISSION ──────────────────────────────────────────────────────
+
+model Permission {
+  id    String    @id @default(uuid()) @db.Uuid
+  key   String    @unique // e.g. "work-orders.create"
+  scope ScopeType @default(ALL)
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+// ─── USER ↔ ROLE (pivot) ─────────────────────────────────────────────
+
+model UserRole {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// ─── ROLE ↔ PERMISSION (pivot) ───────────────────────────────────────
+
+model RolePermission {
+  id           String    @id @default(uuid()) @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  permissionId String    @map("permission_id") @db.Uuid
+  scope        ScopeType @default(ALL) // can override default scope per role
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─── APPROVAL REQUEST ────────────────────────────────────────────────
+
+model ApprovalRequest {
+  id               String         @id @default(uuid()) @db.Uuid
+  tipo             String         // e.g. "odometro_decreciente", "anulacion_factura"
+  creadoPorId      String         @map("creado_por_id") @db.Uuid
+  contextJson      Json           @map("context_json")
+  estado           ApprovalStatus @default(PENDIENTE)
+  aprobadoPorId    String?        @map("aprobado_por_id") @db.Uuid
+  notasSupervisor  String?        @map("notas_supervisor")
+  companyScope     String         @map("company_scope")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  creadoPor   User  @relation("CreatedBy", fields: [creadoPorId], references: [id])
+  aprobadoPor User? @relation("ApprovedBy", fields: [aprobadoPorId], references: [id])
+
+  auditLogs AuditLog[]
+
+  @@map("approval_requests")
+}
+
+// ─── AUDIT LOG ───────────────────────────────────────────────────────
+
+model AuditLog {
+  id                String  @id @default(uuid()) @db.Uuid
+  tabla             String  // table name
+  recordId          String  @map("record_id")
+  accion            String  // CREATE, UPDATE, DELETE
+  beforeJson        Json?   @map("before_json")
+  afterJson         Json?   @map("after_json")
+  userId            String  @map("user_id") @db.Uuid
+  ip                String?
+  deviceId          String? @map("device_id")
+  geoJson           Json?   @map("geo_json")
+  approvalRequestId String? @map("approval_request_id") @db.Uuid
+  companyScope      String  @map("company_scope")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  user            User             @relation(fields: [userId], references: [id])
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+
+  @@index([tabla, recordId])
+  @@index([userId])
+  @@index([companyScope])
+  @@map("audit_logs")
+}
+
+// ─── DOCUMENT SERIES ─────────────────────────────────────────────────
+
+model DocumentSeries {
+  id           String         @id @default(uuid()) @db.Uuid
+  empresa      String         // "AvantService" | "AvantStore"
+  docType      String         @map("doc_type") // "OT", "FAC", "ALB", etc.
+  serieCodigo  String         @map("serie_codigo") @unique
+  prefijo      String         // "OT", "FAC", "ALB", etc.
+  padding      Int            @default(6)
+  periodo      PeriodoSeries  @default(ANUAL)
+  activo       Boolean        @default(true)
+  companyScope String         @map("company_scope")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  counters DocumentCounter[]
+
+  @@map("document_series")
+}
+
+// ─── DOCUMENT COUNTER ────────────────────────────────────────────────
+
+model DocumentCounter {
+  id              String @id @default(uuid()) @db.Uuid
+  seriesId        String @map("series_id") @db.Uuid
+  periodoKey      String @map("periodo_key") // e.g. "2026" or "2026-01"
+  siguienteNumero Int    @default(1) @map("siguiente_numero")
+
+  series DocumentSeries @relation(fields: [seriesId], references: [id])
+
+  @@unique([seriesId, periodoKey])
+  @@map("document_counters")
+}

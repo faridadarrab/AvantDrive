@@ -1,0 +1,88 @@
+﻿# AvantDrive ERP — Reglas Globales para Agentes
+
+## Nombre del proyecto
+AvantDrive — Sistema ERP/CRM/SAT multi-empresa
+Empresas: AvantElite (matriz), AvantService (SAT/campo), AvantStore (tienda/POS)
+
+## Stack obligatorio (NO cambiar nunca)
+- Backend: NestJS 10 + TypeScript 5 + Fastify adapter
+- ORM: Prisma 5 + PostgreSQL 16 con Row Level Security (RLS)
+- Frontend: Next.js 15 + React 19 + Tailwind CSS + Serwist (PWA offline-first)
+- Cache/Sesiones: Redis 7
+- Auth: Passport.js + JWT (expira 15min) + refresh tokens rotativos (7 días) + argon2
+- Real-time GPS: Socket.IO 4
+- Storage: MinIO (fotos incidencias, adjuntos)
+- Email: Resend
+- Tests: Vitest (unit/integration) + Playwright (E2E)
+- Deploy: Docker Compose + Coolify + Hetzner VPS
+
+## Arquitectura: Monolito Modular con DDD
+- NUNCA crear microservicios separados
+- Cada módulo NestJS = bounded context con interfaces claras
+- Módulos: core-auth, approvals, audit, doc-series, crm, work-orders, tools, materials, fleet, sat, inventory, sales, cash, reporting, notifications
+
+## RBAC — 8 roles obligatorios
+ADMINISTRADOR | ADMINISTRACION | ATENCION_AL_CLIENTE | REPARADOR_TALLER | REPARADOR_DOMICILIO | GESTOR_ALMACEN_PIEZAS | VENTAS_TIENDA | GERENCIA_LECTURA
+
+## Scopes de acceso
+ALL | COMPANY | OWN | READONLY
+
+## Regla RBAC absoluta
+- TODOS los endpoints deben tener @HasPermission('modulo.accion', Scope)
+- NINGÚN endpoint puede existir sin ese decorator
+- Los scopes se leen del JWT, NUNCA del body o query del cliente
+
+## Multitenancy
+- nestjs-cls (AsyncLocalStorage) inyecta company_scope en cada request
+- Prisma middleware aplica WHERE company_scope automáticamente
+- PostgreSQL RLS como segunda línea de defensa
+- SET app.current_tenant_id al inicio de cada request
+
+## Auditoría
+- AuditInterceptor GLOBAL en main.ts (no por módulo)
+- Captura: before_json + after_json + userId + timestamp + IP + deviceId + geoJson
+- En TODAS las mutaciones sin excepción
+
+## Las 10 Reglas Anti-Fraude (implementar en capa de servicio, NUNCA en controller)
+R1: Odómetro no decreciente → si new_km < last_km → crear ApprovalRequest, devolver 202
+R2: Consumo material sin work_order_id válido → 400 Bad Request siempre
+R3: Ajuste alto de inventario → requiere ApprovalRequest APROBADA previa
+R4: Sin DELETE físico → solo soft delete con deleted_at + aprobación
+R5: Inspección crítica NOT_OK → vehicle.estado = BLOQUEADO_SEGURIDAD automático
+R6: Incidencia CRITICAL → vehicle.estado = BLOQUEADO_SEGURIDAD automático
+R7: Devolución con daño → mínimo 1 foto obligatoria, backend rechaza sin ella
+R8: Anulación factura o reset caja → ApprovalRequest APROBADA previa obligatoria
+R9: AuditInterceptor captura 100% de mutaciones, sin excepciones posibles
+R10: company_scope filtrado en TODOS los repositorios Prisma siempre
+
+## Series documentales por empresa
+- AvantService: OT-2026-000001, RES-2026-000001, PRES-2026-000001
+- AvantStore: COT-2026-000001, ALB-2026-000001, FAC-2026-000001, CAJA-2026-000001
+- Números visibles NUNCA son PKs, siempre campo adicional
+- Generación atómica con SELECT FOR UPDATE en document_counters
+
+## Módulo de herramientas y materiales
+- 7 gremios: ELECTRONICA, ELECTRICIDAD, FONTANERIA, ELECTRODOMESTICOS, PINTURA, ALBANILERIA, CARPINTERIA
+- REPARADOR_DOMICILIO y REPARADOR_TALLER: solo pueden crear SolicitudWorkflow, NUNCA mover stock directamente
+- POST /tools/move y POST /materials/move → 403 Forbidden para roles Reparador
+- Kits por trabajo: retiro en bloque con un solo endpoint
+- QR code único por herramienta y material
+
+## PWA offline-first
+- Serwist con webpack (NO turbopack, incompatible)
+- IndexedDB (Dexie.js) para datos locales del técnico
+- Background Sync para mutaciones offline
+- Página /offline con datos cacheados
+
+## NO usar nunca
+- bcrypt (usar argon2)
+- DELETE físico en tablas operativas
+- CORS wildcard en producción
+- WidthType.PERCENTAGE en tablas docx
+- turbopack con Serwist
+
+## Testing obligatorio por módulo
+- Tests de RBAC: verificar que cada scope funciona correctamente
+- Tests de reglas anti-fraude: cada regla R1-R10 debe tener test
+- Tests E2E: flujos críticos completos
+

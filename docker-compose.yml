@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # ─── PostgreSQL 16 with RLS ──────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: avantdrive-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-avantdrive}
+      POSTGRES_USER: ${POSTGRES_USER:-avantdrive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-avantdrive_secret}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-avantdrive}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis 7 with AOF persistence ────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: avantdrive-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-avantdrive_redis}
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-avantdrive_redis}', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── NestJS API ──────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: avantdrive-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-avantdrive}:${POSTGRES_PASSWORD:-avantdrive_secret}@postgres:5432/${POSTGRES_DB:-avantdrive}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:-avantdrive_redis}@redis:6379
+    ports:
+      - '${API_PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

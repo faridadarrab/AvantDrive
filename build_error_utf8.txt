@@ -1,0 +1,15 @@
+
+> avantdrive-erp@1.0.0 build
+> nest build
+
+-  TSC  Initializing type checker...
+
+[96msrc/fleet/dto/create-inspection.dto.ts[0m:[93m3[0m:[93m10[0m - [91merror[0m[90m TS2305: [0mModule '"@prisma/client"' has no exported member 'ComponentEstado'.
+
+[7m3[0m import { ComponentEstado } from '@prisma/client';
+[7m [0m [91m         ~~~~~~~~~~~~~~~[0m
+[96msrc/fleet/fleet.service.ts[0m:[93m6[0m:[93m26[0m - [91merror[0m[90m TS2305: [0mModule '"@prisma/client"' has no exported member 'ComponentEstado'.
+
+[7m6[0m import { ApprovalStatus, ComponentEstado, VehicleEstado } from '@prisma/client';
+[7m [0m [91m                         ~~~~~~~~~~~~~~~[0m
+
