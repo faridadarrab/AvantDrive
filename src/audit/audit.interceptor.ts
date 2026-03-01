@@ -38,6 +38,13 @@ export class AuditInterceptor implements NestInterceptor {
         }
 
         const user: JwtPayload | undefined = request.user;
+
+        // Si no hay usuario autenticado (ej: /auth/login, /auth/refresh),
+        // no podemos crear un AuditLog porque userId es UUID obligatorio.
+        if (!user || !user.sub) {
+            return next.handle();
+        }
+
         const beforeJson = request.body ? { ...request.body } : null;
         const ip =
             request.ip ||
