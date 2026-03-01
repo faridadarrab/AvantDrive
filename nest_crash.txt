@@ -1,0 +1,35 @@
+﻿[32m[Nest] 3736  - [39m01/03/2026, 6:38:33 [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 3736  - [39m01/03/2026, 6:38:33 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mClsModule dependencies initialized[39m[38;5;3m +51ms[39m
+[32m[Nest] 3736  - [39m01/03/2026, 6:38:33 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mClsCommonModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 3736  - [39m01/03/2026, 6:38:33 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPrismaModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 3736  - [39m01/03/2026, 6:38:33 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPassportModule dependencies initialized[39m[38;5;3m +0ms[39m
+[31m[Nest] 3736  - [39m01/03/2026, 6:38:33 [31m  ERROR[39m [38;5;3m[ExceptionHandler] [39m[31mNest can't resolve dependencies of the FleetService (PrismaService, ClsService, ?). Please make sure that the argument EventEmitter at index [2] is available in the FleetModule context.
+System.Management.Automation.RemoteException
+Potential solutions:
+- Is FleetModule a valid NestJS module?
+- If EventEmitter is a provider, is it part of the current FleetModule?
+- If EventEmitter is exported from a separate @Module, is that module imported within FleetModule?
+  @Module({
+    imports: [ /* the Module containing EventEmitter */ ]
+  })
+[39m
+Error: Nest can't resolve dependencies of the FleetService (PrismaService, ClsService, ?). Please make sure that the argument EventEmitter at index [2] is available in the FleetModule context.
+System.Management.Automation.RemoteException
+Potential solutions:
+- Is FleetModule a valid NestJS module?
+- If EventEmitter is a provider, is it part of the current FleetModule?
+- If EventEmitter is exported from a separate @Module, is that module imported within FleetModule?
+  @Module({
+    imports: [ /* the Module containing EventEmitter */ ]
+  })
+System.Management.Automation.RemoteException
+    at Injector.lookupComponentInParentModules (C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\injector.js:262:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Injector.resolveComponentInstance (C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\injector.js:215:33)
+    at async resolveParam (C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\injector.js:129:38)
+    at async Promise.all (index 2)
+    at async Injector.resolveConstructorParams (C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\injector.js:144:27)
+    at async Injector.loadInstance (C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\injector.js:70:13)
+    at async Injector.loadProvider (C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\injector.js:98:9)
+    at async C:\Users\Farid Samsung\Documents\GitHub\AvantDrive\node_modules\@nestjs\core\injector\instance-loader.js:56:13
+    at async Promise.all (index 3)

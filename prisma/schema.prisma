@@ -1,0 +1,1194 @@
+// AvantDrive ERP — Prisma Schema
+// Entities: User, Role, Permission, UserRole, RolePermission,
+//           ApprovalRequest, AuditLog, DocumentSeries, DocumentCounter,
+//           Location, Tool, ToolMovement, ToolKit, ToolKitItem,
+//           Material, MaterialMovement, SolicitudWorkflow, Incidencia
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────
+
+enum RoleName {
+  ADMINISTRADOR
+  ADMINISTRACION
+  ATENCION_AL_CLIENTE
+  REPARADOR_TALLER
+  REPARADOR_DOMICILIO
+  GESTOR_ALMACEN_PIEZAS
+  VENTAS_TIENDA
+  GERENCIA_LECTURA
+}
+
+enum ScopeType {
+  ALL
+  COMPANY
+  OWN
+  READONLY
+}
+
+enum ApprovalStatus {
+  PENDIENTE
+  EN_REVISION
+  APROBADA
+  RECHAZADA
+  EJECUTADA
+}
+
+enum PeriodoSeries {
+  ANUAL
+  MENSUAL
+  NINGUNO
+}
+
+enum LocationTipo {
+  ALMACEN
+  VEHICULO
+  OBRA
+}
+
+enum ToolEstado {
+  DISPONIBLE
+  ASIGNADA
+  MANTENIMIENTO
+  DANADA
+  BAJA
+}
+
+enum ToolMovementTipo {
+  RETIRADA
+  DEVOLUCION
+  TRASLADO
+  BAJA
+}
+
+enum Gremio {
+  ELECTRONICA
+  ELECTRICIDAD
+  FONTANERIA
+  ELECTRODOMESTICOS
+  PINTURA
+  ALBANILERIA
+  CARPINTERIA
+}
+
+enum MaterialMovementTipo {
+  ENTRADA
+  SALIDA
+  ASIGNACION
+  DEVOLUCION
+  AJUSTE
+}
+
+enum SolicitudTipo {
+  REPOSICION
+  DEVOLUCION
+  TRASLADO
+  BAJA
+}
+
+enum SolicitudPrioridad {
+  BAJA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum SolicitudEstado {
+  PENDIENTE
+  EN_REVISION
+  APROBADA
+  RECHAZADA
+  EJECUTADA
+  CANCELADA
+}
+
+enum IncidenciaTipo {
+  DANO
+  PERDIDA
+  ROBO
+  DEFECTO
+  OTRO
+}
+
+enum IncidenciaEstado {
+  ABIERTA
+  EN_PROCESO
+  RESUELTA
+  CERRADA
+}
+
+// ─── USER ────────────────────────────────────────────────────────────
+
+model User {
+  vehiculosAsignados     Vehicle[]            @relation("VehicleAsignado")
+  inspeccionesRealizadas VehicleInspection[]  @relation("VehicleInspector")
+  odometerLogs           VehicleOdometerLog[] @relation("OdometerUser")
+
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  nombre           String
+  companyScope     String    @map("company_scope")
+  refreshTokenHash String?   @map("refresh_token_hash")
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  userRoles                UserRole[]
+  approvalRequestsCreated  ApprovalRequest[]   @relation("CreatedBy")
+  approvalRequestsApproved ApprovalRequest[]   @relation("ApprovedBy")
+  auditLogs                AuditLog[]
+  toolMovements            ToolMovement[]
+  materialMovements        MaterialMovement[]
+  solicitudesCreadas       SolicitudWorkflow[] @relation("SolicitudCreador")
+  solicitudesAprobadas     SolicitudWorkflow[] @relation("SolicitudAprobador")
+  incidencias              Incidencia[]
+  materialesRecibidos      MaterialMovement[]  @relation("OperarioDestino")
+
+  // SAT relations
+  ordenesComoTecnico       OrdenTrabajo[]      @relation("OTTecnico")
+  ordenesComoReceptor      OrdenTrabajo[]      @relation("OTReceptor")
+  presupuestosCreados      Presupuesto[]       @relation("PresupuestoCreadoPor")
+  pagosAnulados            Pago[]              @relation("PagoAnulacion")
+  pagosRegistrados         Pago[]              @relation("PagoRegistrador")
+
+  // Sales relations
+  quotesCreados            Quote[]             @relation("QuoteCreadoPor")
+  deliveryNotesCreados     DeliveryNote[]      @relation("DeliveryNoteCreadoPor")
+  invoicesCreados          Invoice[]           @relation("InvoiceCreadoPor")
+
+  // Cash relations
+  cashSessionsAbiertos     CashSession[]       @relation("CashSessionApertura")
+  cashSessionsCerrados     CashSession[]       @relation("CashSessionCierre")
+  cashMovements            CashMovement[]      @relation("CashMovementUser")
+
+  // CRM relations
+  crmInteractions          Interaction[]       @relation("InteractionUser")
+  crmReminders             Reminder[]          @relation("ReminderUser")
+
+  @@map("users")
+}
+
+
+// ─── ROLE ────────────────────────────────────────────────────────────
+
+model Role {
+  id     String   @id @default(uuid()) @db.Uuid
+  nombre RoleName @unique
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+// ─── PERMISSION ──────────────────────────────────────────────────────
+
+model Permission {
+  id    String    @id @default(uuid()) @db.Uuid
+  key   String    @unique // e.g. "work-orders.create"
+  scope ScopeType @default(ALL)
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+// ─── USER ↔ ROLE (pivot) ─────────────────────────────────────────────
+
+model UserRole {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// ─── ROLE ↔ PERMISSION (pivot) ───────────────────────────────────────
+
+model RolePermission {
+  id           String    @id @default(uuid()) @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  permissionId String    @map("permission_id") @db.Uuid
+  scope        ScopeType @default(ALL) // can override default scope per role
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─── APPROVAL REQUEST ────────────────────────────────────────────────
+
+model ApprovalRequest {
+  odometerLogs VehicleOdometerLog[]
+
+  id              String         @id @default(uuid()) @db.Uuid
+  tipo            String // e.g. "odometro_decreciente", "anulacion_factura"
+  creadoPorId     String         @map("creado_por_id") @db.Uuid
+  contextJson     Json           @map("context_json")
+  estado          ApprovalStatus @default(PENDIENTE)
+  aprobadoPorId   String?        @map("aprobado_por_id") @db.Uuid
+  notasSupervisor String?        @map("notas_supervisor")
+  companyScope    String         @map("company_scope")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  creadoPor   User  @relation("CreatedBy", fields: [creadoPorId], references: [id])
+  aprobadoPor User? @relation("ApprovedBy", fields: [aprobadoPorId], references: [id])
+
+  auditLogs AuditLog[]
+
+  @@map("approval_requests")
+}
+
+// ─── AUDIT LOG ───────────────────────────────────────────────────────
+
+model AuditLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  tabla             String // table name
+  recordId          String   @map("record_id")
+  accion            String // CREATE, UPDATE, DELETE
+  beforeJson        Json?    @map("before_json")
+  afterJson         Json?    @map("after_json")
+  userId            String   @map("user_id") @db.Uuid
+  ip                String?
+  deviceId          String?  @map("device_id")
+  geoJson           Json?    @map("geo_json")
+  approvalRequestId String?  @map("approval_request_id") @db.Uuid
+  companyScope      String   @map("company_scope")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  user            User             @relation(fields: [userId], references: [id])
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+
+  @@index([tabla, recordId])
+  @@index([userId])
+  @@index([companyScope])
+  @@map("audit_logs")
+}
+
+// ─── DOCUMENT SERIES ─────────────────────────────────────────────────
+
+model DocumentSeries {
+  id           String        @id @default(uuid()) @db.Uuid
+  empresa      String // "AvantService" | "AvantStore"
+  docType      String        @map("doc_type") // "OT", "FAC", "ALB", etc.
+  serieCodigo  String        @unique @map("serie_codigo")
+  prefijo      String // "OT", "FAC", "ALB", etc.
+  padding      Int           @default(6)
+  periodo      PeriodoSeries @default(ANUAL)
+  activo       Boolean       @default(true)
+  companyScope String        @map("company_scope")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  counters DocumentCounter[]
+
+  @@map("document_series")
+}
+
+// ─── DOCUMENT COUNTER ────────────────────────────────────────────────
+
+model DocumentCounter {
+  id              String @id @default(uuid()) @db.Uuid
+  seriesId        String @map("series_id") @db.Uuid
+  periodoKey      String @map("periodo_key") // e.g. "2026" or "2026-01"
+  siguienteNumero Int    @default(1) @map("siguiente_numero")
+
+  series DocumentSeries @relation(fields: [seriesId], references: [id])
+
+  @@unique([seriesId, periodoKey])
+  @@map("document_counters")
+}
+
+// ─── LOCATION ────────────────────────────────────────────────────────
+
+model Location {
+  id           String       @id @default(uuid()) @db.Uuid
+  nombre       String
+  tipo         LocationTipo
+  vehiculoId   String?      @map("vehiculo_id") @db.Uuid
+  companyScope String       @map("company_scope")
+  deletedAt    DateTime?    @map("deleted_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  tools                Tool[]
+  materials            Material[]
+  toolMovementsOrigen  ToolMovement[]      @relation("ToolMovementOrigen")
+  toolMovementsDestino ToolMovement[]      @relation("ToolMovementDestino")
+  materialMovements    MaterialMovement[]
+  solicitudesFurgoneta SolicitudWorkflow[]
+
+  @@index([companyScope])
+  @@map("locations")
+}
+
+// ─── TOOL ────────────────────────────────────────────────────────────
+
+model Tool {
+  id                   String     @id @default(uuid()) @db.Uuid
+  nombre               String
+  categoria            String?
+  qrCode               String     @unique @map("qr_code")
+  estado               ToolEstado @default(DISPONIBLE)
+  locationId           String     @map("location_id") @db.Uuid
+  precioCompra         Float?     @map("precio_compra")
+  valorActual          Float?     @map("valor_actual")
+  proveedor            String?
+  proximoMantenimiento DateTime?  @map("proximo_mantenimiento")
+  numeroSerie          String?    @map("numero_serie")
+  companyScope         String     @map("company_scope")
+  deletedAt            DateTime?  @map("deleted_at")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
+
+  location    Location       @relation(fields: [locationId], references: [id])
+  movements   ToolMovement[]
+  kitItems    ToolKitItem[]
+  incidencias Incidencia[]   @relation("IncidenciaTool")
+
+  @@index([companyScope])
+  @@index([estado])
+  @@map("tools")
+}
+
+// ─── TOOL MOVEMENT ──────────────────────────────────────────────────
+
+model ToolMovement {
+  id                String           @id @default(uuid()) @db.Uuid
+  toolId            String           @map("tool_id") @db.Uuid
+  tipo              ToolMovementTipo
+  locationOrigenId  String?          @map("location_origen_id") @db.Uuid
+  locationDestinoId String?          @map("location_destino_id") @db.Uuid
+  fecha             DateTime         @default(now())
+  userId            String           @map("user_id") @db.Uuid
+  workOrderId       String?          @map("work_order_id") @db.Uuid
+  solicitudId       String?          @map("solicitud_id") @db.Uuid
+  companyScope      String           @map("company_scope")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  tool            Tool      @relation(fields: [toolId], references: [id])
+  locationOrigen  Location? @relation("ToolMovementOrigen", fields: [locationOrigenId], references: [id])
+  locationDestino Location? @relation("ToolMovementDestino", fields: [locationDestinoId], references: [id])
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([toolId])
+  @@index([companyScope])
+  @@map("tool_movements")
+}
+
+// ─── TOOL KIT ───────────────────────────────────────────────────────
+
+model ToolKit {
+  id           String   @id @default(uuid()) @db.Uuid
+  nombre       String
+  gremio       String
+  descripcion  String?
+  activo       Boolean  @default(true)
+  companyScope String   @map("company_scope")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  items ToolKitItem[]
+
+  @@index([companyScope])
+  @@map("tool_kits")
+}
+
+// ─── TOOL KIT ITEM ──────────────────────────────────────────────────
+
+model ToolKitItem {
+  id       String @id @default(uuid()) @db.Uuid
+  kitId    String @map("kit_id") @db.Uuid
+  toolId   String @map("tool_id") @db.Uuid
+  cantidad Int    @default(1)
+
+  kit  ToolKit @relation(fields: [kitId], references: [id])
+  tool Tool    @relation(fields: [toolId], references: [id])
+
+  @@unique([kitId, toolId])
+  @@map("tool_kit_items")
+}
+
+// ─── MATERIAL ───────────────────────────────────────────────────────
+
+model Material {
+  id                   String    @id @default(uuid()) @db.Uuid
+  nombre               String
+  gremio               Gremio
+  categoria            String?
+  codigoRef            String?   @map("codigo_ref")
+  unidad               String
+  stockActual          Float     @default(0) @map("stock_actual")
+  stockMinimo          Float     @default(0) @map("stock_minimo")
+  precioUnitarioCompra Float     @map("precio_unitario_compra")
+  precioUnitarioVenta  Float?    @map("precio_unitario_venta")
+  proveedor            String?
+  qrCode               String    @unique @map("qr_code")
+  locationId           String    @map("location_id") @db.Uuid
+  companyScope         String    @map("company_scope")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  location    Location           @relation(fields: [locationId], references: [id])
+  movements   MaterialMovement[]
+  incidencias Incidencia[]       @relation("IncidenciaMaterial")
+
+  @@index([companyScope])
+  @@index([gremio])
+  @@map("materials")
+}
+
+// ─── MATERIAL MOVEMENT ──────────────────────────────────────────────
+
+model MaterialMovement {
+  id                String               @id @default(uuid()) @db.Uuid
+  materialId        String               @map("material_id") @db.Uuid
+  tipo              MaterialMovementTipo
+  cantidad          Float
+  fecha             DateTime             @default(now())
+  userId            String               @map("user_id") @db.Uuid
+  operarioDestinoId String?              @map("operario_destino_id") @db.Uuid
+  workOrderId       String?              @map("work_order_id") @db.Uuid
+  solicitudId       String?              @map("solicitud_id") @db.Uuid
+  companyScope      String               @map("company_scope")
+  createdAt         DateTime             @default(now()) @map("created_at")
+
+  material        Material @relation(fields: [materialId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+  operarioDestino User?    @relation("OperarioDestino", fields: [operarioDestinoId], references: [id])
+  locationId      String   @map("location_id") @db.Uuid
+  location        Location @relation(fields: [locationId], references: [id])
+
+  @@index([materialId])
+  @@index([companyScope])
+  @@map("material_movements")
+}
+
+// ─── SOLICITUD WORKFLOW ─────────────────────────────────────────────
+
+model SolicitudWorkflow {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tipo               SolicitudTipo
+  creadoPorId        String             @map("creado_por_id") @db.Uuid
+  furgonetaId        String?            @map("furgoneta_id") @db.Uuid
+  items              Json // Array of items with details
+  motivo             String?
+  prioridad          SolicitudPrioridad @default(MEDIA)
+  estado             SolicitudEstado    @default(PENDIENTE)
+  aprobadoPorId      String?            @map("aprobado_por_id") @db.Uuid
+  notasSupervisor    String?            @map("notas_supervisor")
+  confirmadoReceptor Boolean            @default(false) @map("confirmado_receptor")
+  companyScope       String             @map("company_scope")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  creadoPor   User      @relation("SolicitudCreador", fields: [creadoPorId], references: [id])
+  aprobadoPor User?     @relation("SolicitudAprobador", fields: [aprobadoPorId], references: [id])
+  furgoneta   Location? @relation(fields: [furgonetaId], references: [id])
+
+  @@index([companyScope])
+  @@index([estado])
+  @@index([prioridad])
+  @@map("solicitud_workflows")
+}
+
+// ─── INCIDENCIA ─────────────────────────────────────────────────────
+
+model Incidencia {
+  id           String             @id @default(uuid()) @db.Uuid
+  tipo         IncidenciaTipo
+  toolId       String?            @map("tool_id") @db.Uuid
+  materialId   String?            @map("material_id") @db.Uuid
+  operarioId   String             @map("operario_id") @db.Uuid
+  descripcion  String
+  prioridad    SolicitudPrioridad
+  estado       IncidenciaEstado   @default(ABIERTA)
+  fotos        Json               @default("[]") // JSON array of photo URLs
+  companyScope String             @map("company_scope")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  tool     Tool?     @relation("IncidenciaTool", fields: [toolId], references: [id])
+  material Material? @relation("IncidenciaMaterial", fields: [materialId], references: [id])
+  operario User      @relation(fields: [operarioId], references: [id])
+
+  @@index([companyScope])
+  @@index([estado])
+  @@map("incidencias")
+}
+
+// ---------------- FLEET ----------------
+
+enum VehicleEstado {
+  OPERATIVO
+  BLOQUEADO_SEGURIDAD
+  MANTENIMIENTO
+  BAJA
+}
+
+enum ComponentEstado {
+  OK
+  NOT_OK
+  NA
+}
+
+enum VehicleMaintenanceEstado {
+  PENDIENTE
+  EN_CURSO
+  COMPLETADO
+  CANCELADO
+}
+
+model Vehicle {
+  id                 String        @id @default(uuid()) @db.Uuid
+  matricula          String        @unique
+  marca              String
+  modelo             String
+  anio               Int           @map("ano") // avoid ñ
+  estado             VehicleEstado @default(OPERATIVO)
+  kmActualValidado   Int           @default(0) @map("km_actual_validado")
+  operarioAsignadoId String?       @map("operario_asignado_id") @db.Uuid
+  companyScope       String        @map("company_scope")
+  deletedAt          DateTime?     @map("deleted_at")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  operarioAsignado User?                @relation("VehicleAsignado", fields: [operarioAsignadoId], references: [id])
+  inspections      VehicleInspection[]
+  odometerLogs     VehicleOdometerLog[]
+  gpsLogs          GpsLog[]
+  maintenances     VehicleMaintenance[]
+
+  @@index([companyScope])
+  @@map("vehicles")
+}
+
+model VehicleInspection {
+  id            String   @id @default(uuid()) @db.Uuid
+  vehicleId     String   @map("vehicle_id") @db.Uuid
+  inspectorId   String   @map("inspector_id") @db.Uuid
+  odometroKm    Int      @map("odometro_km")
+  estadoGeneral String   @map("estado_general")
+  items         Json // [{nombre, critical, estado: OK|NOT_OK|NA}]
+  fotos         Json     @default("[]") // [{url}]
+  fecha         DateTime @default(now())
+  companyScope  String   @map("company_scope")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  inspector User    @relation("VehicleInspector", fields: [inspectorId], references: [id])
+
+  @@index([companyScope])
+  @@index([vehicleId])
+  @@map("vehicle_inspections")
+}
+
+model VehicleOdometerLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  vehicleId         String   @map("vehicle_id") @db.Uuid
+  kmAnterior        Int      @map("km_anterior")
+  kmNuevo           Int      @map("km_nuevo")
+  locked            Boolean  @default(false)
+  fecha             DateTime @default(now())
+  userId            String   @map("user_id") @db.Uuid
+  approvalRequestId String?  @map("approval_request_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  vehicle         Vehicle          @relation(fields: [vehicleId], references: [id])
+  user            User             @relation("OdometerUser", fields: [userId], references: [id])
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+
+  @@index([vehicleId])
+  @@map("vehicle_odometer_logs")
+}
+
+model GpsLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  vehicleId    String   @map("vehicle_id") @db.Uuid
+  lat          Float
+  lon          Float
+  velocidad    Float    @default(0)
+  timestamp    DateTime @default(now())
+  companyScope String   @map("company_scope")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId, timestamp])
+  @@index([companyScope])
+  @@map("gps_logs")
+}
+
+model VehicleMaintenance {
+  id           String                   @id @default(uuid()) @db.Uuid
+  vehicleId    String                   @map("vehicle_id") @db.Uuid
+  tipo         String // e.g. "PREVENTIVO", "CORRECTIVO"
+  descripcion  String
+  kmTrigger    Int?                     @map("km_trigger")
+  fechaTrigger DateTime?                @map("fecha_trigger")
+  estado       VehicleMaintenanceEstado @default(PENDIENTE)
+  companyScope String                   @map("company_scope")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@index([vehicleId])
+  @@index([companyScope])
+  @@map("vehicle_maintenances")
+}
+
+// ─── SAT MODULE ─────────────────────────────────────────────────────────────
+// SAT = Servicio de Asistencia Técnica
+// Entities: OrdenTrabajo, Presupuesto, LineaPresupuesto, ResguardoPieza, Pago
+
+enum OTEstado {
+  RECIBIDA        // equipment received at the workshop
+  DIAGNOSTICO     // under diagnosis
+  ESPERANDO_PIEZAS
+  EN_REPARACION
+  CONTROL_CALIDAD
+  LISTA_ENTREGA   // ready to hand back
+  ENTREGADA       // handed back to customer ← terminal
+  CERRADA         // fully invoiced & closed ← terminal
+  CANCELADA       // cancelled ← terminal
+}
+
+enum OTTipo {
+  GARANTIA
+  CORRECTIVO
+  PREVENTIVO
+  INSTALACION
+  PRESUPUESTO_SOLO // quote only, no repair
+}
+
+enum OTPrioridad {
+  NORMAL
+  URGENTE
+  VIP
+}
+
+enum PresupuestoEstado {
+  BORRADOR
+  ENVIADO
+  ACEPTADO
+  RECHAZADO
+  VENCIDO
+}
+
+enum PagoMetodo {
+  EFECTIVO
+  TARJETA
+  TRANSFERENCIA
+  CHEQUE
+  CREDITO
+}
+
+enum PagoEstado {
+  PENDIENTE
+  REGISTRADO
+  ANULADO // requires ADMINISTRADOR approval (anti-fraud R-SAT1)
+}
+
+// ─── ORDEN TRABAJO ───────────────────────────────────────────────────────────
+
+model OrdenTrabajo {
+  id               String      @id @default(uuid()) @db.Uuid
+  numero           String      @unique // e.g. "OT-2026-000001", generated by DocumentSeries
+  tipo             OTTipo      @default(CORRECTIVO)
+  estado           OTEstado    @default(RECIBIDA)
+  prioridad        OTPrioridad @default(NORMAL)
+
+  // Customer info (denormalised for speed — full CRM link later)
+  clienteNombre    String      @map("cliente_nombre")
+  clienteTelefono  String?     @map("cliente_telefono")
+  clienteEmail     String?     @map("cliente_email")
+
+  // Equipment
+  equipoDescripcion String     @map("equipo_descripcion") // e.g. "Lavadora Bosch WAN24260ES"
+  equipoMarca       String?    @map("equipo_marca")
+  equipoModelo      String?    @map("equipo_modelo")
+  equipoNumSerie    String?    @map("equipo_num_serie")
+  equipoFotoUrls    Json       @default("[]") @map("equipo_foto_urls") // array of URLs
+
+  // Fault reported by customer
+  fallaReportada   String      @map("falla_reportada")
+  // Diagnosis by technician
+  diagnostico      String?
+
+  // Technician assigned
+  tecnicoId        String?     @map("tecnico_id") @db.Uuid
+  tecnico          User?       @relation("OTTecnico", fields: [tecnicoId], references: [id])
+
+  // Receptionist who opened the OT
+  receptorId       String      @map("receptor_id") @db.Uuid
+  receptor         User        @relation("OTReceptor", fields: [receptorId], references: [id])
+
+  // Anti-fraud R-SAT2: customer must counter-sign when equipment is delivered
+  contrafirmaCliente    Boolean   @default(false) @map("contrafirma_cliente")
+  contrafirmaFechaHora  DateTime? @map("contrafirma_fecha_hora")
+
+  // Anti-fraud R-SAT3: closing an OT without an accepted quote requires supervisor approval
+  cierreRequiereAprobacion Boolean @default(false) @map("cierre_requiere_aprobacion")
+  cierreAprobacionId       String? @map("cierre_aprobacion_id") @db.Uuid
+
+  fechaEntradaEquipo  DateTime  @default(now()) @map("fecha_entrada_equipo")
+  fechaCompromiso     DateTime? @map("fecha_compromiso") // promised delivery date
+  fechaEntregaReal    DateTime? @map("fecha_entrega_real")
+
+  observaciones    String?
+  companyScope     String      @map("company_scope")
+  deletedAt        DateTime?   @map("deleted_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  presupuestos     Presupuesto[]
+  resguardos       ResguardoPieza[]
+  pagos            Pago[]
+
+  @@index([companyScope])
+  @@index([estado])
+  @@index([tecnicoId])
+  @@map("ordenes_trabajo")
+}
+
+// ─── PRESUPUESTO ─────────────────────────────────────────────────────────────
+
+model Presupuesto {
+  id             String            @id @default(uuid()) @db.Uuid
+  numero         String            @unique // e.g. "PRE-2026-000001"
+  ordenTrabajoId String            @map("orden_trabajo_id") @db.Uuid
+  ordenTrabajo   OrdenTrabajo      @relation(fields: [ordenTrabajoId], references: [id])
+
+  estado         PresupuestoEstado @default(BORRADOR)
+  validoHasta    DateTime?         @map("valido_hasta")
+
+  // Anti-fraud R-SAT1: only ADMINISTRADOR can apply discounts > 15 %
+  descuentoPct      Float   @default(0) @map("descuento_pct") // 0-100
+  pagoSuperadminRequerido Boolean @default(false) @map("pago_superadmin_requerido")
+
+  notasInternas  String?  @map("notas_internas")
+  notasCliente   String?  @map("notas_cliente")
+
+  creadoPorId    String   @map("creado_por_id") @db.Uuid
+  creadoPor      User     @relation("PresupuestoCreadoPor", fields: [creadoPorId], references: [id])
+
+  companyScope   String   @map("company_scope")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  lineas         LineaPresupuesto[]
+
+  @@index([companyScope])
+  @@index([estado])
+  @@map("presupuestos")
+}
+
+// ─── LINEA PRESUPUESTO ────────────────────────────────────────────────────────
+
+model LineaPresupuesto {
+  id              String      @id @default(uuid()) @db.Uuid
+  presupuestoId   String      @map("presupuesto_id") @db.Uuid
+  presupuesto     Presupuesto @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+
+  concepto        String  // "Mano de obra", "Pieza X", etc.
+  cantidad        Float
+  precioUnitario  Float   @map("precio_unitario")
+  iva             Float   @default(21) // IVA %
+  // total = cantidad * precioUnitario * (1 + iva/100) — computed in service
+
+  materialId      String? @map("material_id") @db.Uuid // link to inventory if applicable
+
+  @@index([presupuestoId])
+  @@map("lineas_presupuesto")
+}
+
+// ─── RESGUARDO DE PIEZA ───────────────────────────────────────────────────────
+// Tracks parts left by the customer for safekeeping (anti-fraud R-SAT4)
+
+model ResguardoPieza {
+  id             String      @id @default(uuid()) @db.Uuid
+  ordenTrabajoId String      @map("orden_trabajo_id") @db.Uuid
+  ordenTrabajo   OrdenTrabajo @relation(fields: [ordenTrabajoId], references: [id])
+
+  descripcion    String
+  cantidad       Int     @default(1)
+  valorDeclarado Float?  @map("valor_declarado")
+  fotoUrls       Json    @default("[]") @map("foto_urls")
+
+  // R-SAT4: must be confirmed returned when OT is delivered
+  devuelta       Boolean  @default(false)
+  fechaDevolucion DateTime? @map("fecha_devolucion")
+
+  companyScope   String   @map("company_scope")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([ordenTrabajoId])
+  @@map("resguardos_pieza")
+}
+
+// ─── PAGO ────────────────────────────────────────────────────────────────────
+
+model Pago {
+  id             String     @id @default(uuid()) @db.Uuid
+  ordenTrabajoId String     @map("orden_trabajo_id") @db.Uuid
+  ordenTrabajo   OrdenTrabajo @relation(fields: [ordenTrabajoId], references: [id])
+
+  metodo         PagoMetodo
+  importe        Float
+  estado         PagoEstado @default(PENDIENTE)
+
+  referencia     String?  // bank transfer ref, card auth code, etc.
+  notas          String?
+
+  // Anti-fraud R-SAT1: annulment requires ADMINISTRADOR approval
+  anulacionAprobadaPorId String?  @map("anulacion_aprobada_por_id") @db.Uuid
+  anulacionAprobadaPor   User?    @relation("PagoAnulacion", fields: [anulacionAprobadaPorId], references: [id])
+
+  registradoPorId String   @map("registrado_por_id") @db.Uuid
+  registradoPor   User     @relation("PagoRegistrador", fields: [registradoPorId], references: [id])
+
+  companyScope   String   @map("company_scope")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([ordenTrabajoId])
+  @@index([companyScope])
+  @@map("pagos")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SALES MODULE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+enum CustomerTipo {
+  PARTICULAR
+  EMPRESA
+}
+
+enum QuoteEstado {
+  BORRADOR
+  ENVIADO
+  ACEPTADO
+  RECHAZADO
+  EXPIRADO
+}
+
+enum DeliveryNoteEstado {
+  PENDIENTE
+  ENTREGADO
+  PARCIAL
+}
+
+enum InvoiceEstado {
+  EMITIDA
+  PAGADA
+  ANULADA
+}
+
+model Customer {
+  id           String       @id @default(uuid()) @db.Uuid
+  nombre       String
+  email        String?
+  telefono     String?
+  nif          String?
+  direccion    String?
+  tipo         CustomerTipo @default(PARTICULAR)
+  companyScope String       @map("company_scope")
+  deletedAt    DateTime?    @map("deleted_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  quotes        Quote[]
+  deliveryNotes DeliveryNote[]
+  invoices      Invoice[]
+
+  @@index([companyScope])
+  @@map("customers")
+}
+
+model Quote {
+  id           String      @id @default(uuid()) @db.Uuid
+  numero       String      @unique
+  customerId   String      @map("customer_id") @db.Uuid
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  items        Json        // [{concepto, cantidad, precioUnitario, iva}]
+  subtotal     Float
+  descuento    Float       @default(0)
+  total        Float
+  estado       QuoteEstado @default(BORRADOR)
+  validoHasta  DateTime?   @map("valido_hasta")
+  creadoPorId  String      @map("creado_por_id") @db.Uuid
+  creadoPor    User        @relation("QuoteCreadoPor", fields: [creadoPorId], references: [id])
+  companyScope String      @map("company_scope")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  deliveryNotes DeliveryNote[]
+
+  @@index([companyScope])
+  @@index([estado])
+  @@map("quotes")
+}
+
+model DeliveryNote {
+  id           String              @id @default(uuid()) @db.Uuid
+  numero       String              @unique
+  quoteId      String?             @map("quote_id") @db.Uuid
+  quote        Quote?              @relation(fields: [quoteId], references: [id])
+  customerId   String              @map("customer_id") @db.Uuid
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  items        Json
+  total        Float
+  estado       DeliveryNoteEstado  @default(PENDIENTE)
+  creadoPorId  String              @map("creado_por_id") @db.Uuid
+  creadoPor    User                @relation("DeliveryNoteCreadoPor", fields: [creadoPorId], references: [id])
+  companyScope String              @map("company_scope")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  invoices Invoice[]
+
+  @@index([companyScope])
+  @@map("delivery_notes")
+}
+
+model Invoice {
+  id                String        @id @default(uuid()) @db.Uuid
+  numero            String        @unique
+  deliveryNoteId    String?       @map("delivery_note_id") @db.Uuid
+  deliveryNote      DeliveryNote? @relation(fields: [deliveryNoteId], references: [id])
+  customerId        String        @map("customer_id") @db.Uuid
+  customer          Customer      @relation(fields: [customerId], references: [id])
+  items             Json
+  subtotal          Float
+  iva               Float         @default(21)
+  total             Float
+  estado            InvoiceEstado @default(EMITIDA)
+  metodoPago        String?       @map("metodo_pago")
+  creadoPorId       String        @map("creado_por_id") @db.Uuid
+  creadoPor         User          @relation("InvoiceCreadoPor", fields: [creadoPorId], references: [id])
+  approvalRequestId String?       @map("approval_request_id") @db.Uuid
+  companyScope      String        @map("company_scope")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  cashMovements CashMovement[]
+
+  @@index([companyScope])
+  @@index([estado])
+  @@map("invoices")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CASH MODULE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+enum CashSessionEstado {
+  ABIERTA
+  CERRADA
+}
+
+enum CashMovementTipo {
+  INGRESO
+  GASTO
+  COBRO_FACTURA
+  DEVOLUCION
+}
+
+model CashSession {
+  id           String            @id @default(uuid()) @db.Uuid
+  numero       String            @unique
+  aperturaById String            @map("apertura_by_id") @db.Uuid
+  aperturaPor  User              @relation("CashSessionApertura", fields: [aperturaById], references: [id])
+  cierreById   String?           @map("cierre_by_id") @db.Uuid
+  cierrePor    User?             @relation("CashSessionCierre", fields: [cierreById], references: [id])
+  saldoInicial Float             @map("saldo_inicial")
+  saldoFinal   Float?            @map("saldo_final")
+  estado       CashSessionEstado @default(ABIERTA)
+  companyScope String            @map("company_scope")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  movements CashMovement[]
+
+  @@index([companyScope])
+  @@map("cash_sessions")
+}
+
+model CashMovement {
+  id           String           @id @default(uuid()) @db.Uuid
+  sessionId    String           @map("session_id") @db.Uuid
+  session      CashSession      @relation(fields: [sessionId], references: [id])
+  tipo         CashMovementTipo
+  concepto     String
+  importe      Float
+  invoiceId    String?          @map("invoice_id") @db.Uuid
+  invoice      Invoice?         @relation(fields: [invoiceId], references: [id])
+  userId       String           @map("user_id") @db.Uuid
+  user         User             @relation("CashMovementUser", fields: [userId], references: [id])
+  companyScope String           @map("company_scope")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@index([companyScope])
+  @@map("cash_movements")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CRM MODULE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+enum ContactTipo {
+  CLIENTE
+  PROVEEDOR
+  PROSPECTO
+  PARTNER
+}
+
+enum InteractionTipo {
+  LLAMADA
+  EMAIL
+  REUNION
+  WHATSAPP
+  VISITA
+  OTRO
+}
+
+enum ContractEstado {
+  BORRADOR
+  ACTIVO
+  VENCIDO
+  CANCELADO
+  RENOVADO
+}
+
+model Contact {
+  id           String      @id @default(uuid()) @db.Uuid
+  nombre       String
+  apellidos    String?
+  email        String?
+  telefono     String?
+  movil        String?
+  cargo        String?
+  empresa      String?
+  tipo         ContactTipo @default(PROSPECTO)
+  notas        String?
+  companyScope String      @map("company_scope")
+  deletedAt    DateTime?   @map("deleted_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  interactions Interaction[]
+  contracts    Contract[]
+  reminders    Reminder[]
+  tags         ContactTag[]
+
+  @@index([companyScope])
+  @@map("contacts")
+}
+
+model Interaction {
+  id           String          @id @default(uuid()) @db.Uuid
+  contactId    String          @map("contact_id") @db.Uuid
+  contact      Contact         @relation(fields: [contactId], references: [id])
+  tipo         InteractionTipo
+  asunto       String
+  descripcion  String?
+  fecha        DateTime        @default(now())
+  duracionMin  Int?            @map("duracion_min")
+  resultado    String?
+  userId       String          @map("user_id") @db.Uuid
+  user         User            @relation("InteractionUser", fields: [userId], references: [id])
+  companyScope String          @map("company_scope")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  @@index([contactId])
+  @@index([companyScope])
+  @@map("interactions")
+}
+
+model Contract {
+  id           String         @id @default(uuid()) @db.Uuid
+  contactId    String         @map("contact_id") @db.Uuid
+  contact      Contact        @relation(fields: [contactId], references: [id])
+  titulo       String
+  descripcion  String?
+  fechaInicio  DateTime       @map("fecha_inicio")
+  fechaFin     DateTime?      @map("fecha_fin")
+  valor        Float?
+  estado       ContractEstado @default(BORRADOR)
+  documentoUrl String?        @map("documento_url")
+  companyScope String         @map("company_scope")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  reminders Reminder[]
+
+  @@index([contactId])
+  @@index([companyScope])
+  @@index([estado])
+  @@map("contracts")
+}
+
+model Reminder {
+  id                String    @id @default(uuid()) @db.Uuid
+  contactId         String?   @map("contact_id") @db.Uuid
+  contact           Contact?  @relation(fields: [contactId], references: [id])
+  contractId        String?   @map("contract_id") @db.Uuid
+  contract          Contract? @relation(fields: [contractId], references: [id])
+  titulo            String
+  descripcion       String?
+  fechaVencimiento  DateTime  @map("fecha_vencimiento")
+  completado        Boolean   @default(false)
+  userId            String    @map("user_id") @db.Uuid
+  user              User      @relation("ReminderUser", fields: [userId], references: [id])
+  companyScope      String    @map("company_scope")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([companyScope])
+  @@map("reminders")
+}
+
+model Tag {
+  id           String       @id @default(uuid()) @db.Uuid
+  nombre       String
+  color        String       @default("#3B82F6")
+  companyScope String       @map("company_scope")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  contacts ContactTag[]
+
+  @@unique([nombre, companyScope])
+  @@index([companyScope])
+  @@map("tags")
+}
+
+model ContactTag {
+  id        String  @id @default(uuid()) @db.Uuid
+  contactId String  @map("contact_id") @db.Uuid
+  tagId     String  @map("tag_id") @db.Uuid
+
+  contact Contact @relation(fields: [contactId], references: [id])
+  tag     Tag     @relation(fields: [tagId], references: [id])
+
+  @@unique([contactId, tagId])
+  @@map("contact_tags")
+}
